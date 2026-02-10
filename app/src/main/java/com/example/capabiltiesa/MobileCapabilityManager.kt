@@ -17,12 +17,16 @@ class MobileCapabilityManager(
     companion object {
         private const val TAG = "MobileCapabilityMgr"
         private const val CAPABILITY_NAME = "capability_wear"
+        const val MESSAGE_PATH = "/dummy_text"
     }
 
     private val capabilityClient = Wearable.getCapabilityClient(context)
+    private val messageClient = Wearable.getMessageClient(context)
 
     private val _wearInstalled = MutableStateFlow<Boolean?>(null)
     val wearInstalled: StateFlow<Boolean?> = _wearInstalled
+
+    private var wearNodeId: String? = null
 
     fun start() {
         Log.d(TAG, "start() called – registering capability listener")
@@ -35,7 +39,6 @@ class MobileCapabilityManager(
 
         Log.d(TAG, "Capability listener registered")
 
-        // Initial capability check
         Log.d(TAG, "Checking initial capability: $CAPABILITY_NAME")
 
         capabilityClient
@@ -44,13 +47,7 @@ class MobileCapabilityManager(
                 CapabilityClient.FILTER_REACHABLE
             )
             .addOnSuccessListener { info ->
-                val isInstalled = info.nodes.isNotEmpty()
-                _wearInstalled.value = isInstalled
-
-                Log.i(
-                    TAG,
-                    "Initial capability result -> wearInstalled=$isInstalled, nodes=${info.nodes}"
-                )
+                updateNodes(info)
             }
             .addOnFailureListener { exception ->
                 Log.e(
@@ -67,6 +64,24 @@ class MobileCapabilityManager(
         Log.d(TAG, "Capability listener removed")
     }
 
+    fun sendMessage(message: DummyMessage) {
+        val nodeId = wearNodeId
+        if (nodeId == null) {
+            Log.w(TAG, "sendMessage() – no wear node connected")
+            return
+        }
+
+        Log.d(TAG, "Sending message to node $nodeId: $message")
+
+        messageClient.sendMessage(nodeId, MESSAGE_PATH, message.toBytes())
+            .addOnSuccessListener {
+                Log.i(TAG, "Message sent successfully")
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to send message", e)
+            }
+    }
+
     override fun onCapabilityChanged(info: CapabilityInfo) {
         Log.d(
             TAG,
@@ -74,14 +89,18 @@ class MobileCapabilityManager(
         )
 
         if (info.name == CAPABILITY_NAME) {
-            val isInstalled = info.nodes.isNotEmpty()
-            _wearInstalled.value = isInstalled
-
-            Log.i(
-                TAG,
-                "Capability updated -> wearInstalled=$isInstalled"
-            )
+            updateNodes(info)
         }
     }
-}
 
+    private fun updateNodes(info: CapabilityInfo) {
+        val isInstalled = info.nodes.isNotEmpty()
+        wearNodeId = info.nodes.firstOrNull()?.id
+        _wearInstalled.value = isInstalled
+
+        Log.i(
+            TAG,
+            "Nodes updated -> wearInstalled=$isInstalled, nodeId=$wearNodeId"
+        )
+    }
+}

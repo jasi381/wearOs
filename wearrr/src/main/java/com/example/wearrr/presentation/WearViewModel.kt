@@ -4,6 +4,7 @@ import WearCapabilityManager
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.wearrr.DummyMessage
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -35,6 +36,8 @@ class WearViewModel(
                 SharingStarted.WhileSubscribed(5_000),
                 WearUiState.Checking
             )
+
+    val receivedMessage: StateFlow<DummyMessage?> = manager.receivedMessage
 
     fun start() = manager.start()
     fun stop() = manager.stop()

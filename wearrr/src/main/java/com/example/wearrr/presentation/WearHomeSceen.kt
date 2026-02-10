@@ -1,6 +1,6 @@
 package com.example.wearrr.presentation
 
-import android.graphics.Color
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -8,14 +8,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -23,12 +25,13 @@ import androidx.wear.compose.material.CircularProgressIndicator
 import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
+import coil.compose.rememberAsyncImagePainter
 import com.example.wearrr.R
 
 @Composable
 fun WearHomeScreen(viewModel: WearViewModel) {
     val state by viewModel.uiState.collectAsState()
-
+    val message by viewModel.receivedMessage.collectAsState()
 
     when (state) {
         WearUiState.Checking -> {
@@ -40,18 +43,58 @@ fun WearHomeScreen(viewModel: WearViewModel) {
         }
 
         WearUiState.Connected -> {
-            WearSuccess("Monitoring Active ✅")
+            if (message != null) {
+                WearMessageScreen(message!!)
+            } else {
+                WearSuccess("Monitoring Active")
+            }
         }
     }
 }
 
+@Composable
+fun WearMessageScreen(message: com.example.wearrr.DummyMessage) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(12.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (!message.photoUrl.isNullOrBlank()) {
+            Image(
+                painter = rememberAsyncImagePainter(message.photoUrl),
+                contentDescription = "Profile photo",
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        } else {
+            Icon(
+                imageVector = ImageVector.vectorResource(R.drawable.ic_check),
+                contentDescription = null,
+                tint = Color(0xFF2196F3),
+                modifier = Modifier.size(32.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        Text(
+            text = message.name,
+            style = MaterialTheme.typography.title3,
+            textAlign = TextAlign.Center
+        )
+    }
+}
 
 @Composable
 fun WearBaseScreen(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
-    iconTint: androidx.compose.ui.graphics.Color
+    iconTint: Color
 ) {
     Column(
         modifier = Modifier
@@ -81,7 +124,7 @@ fun WearBaseScreen(
                 text = it,
                 style = MaterialTheme.typography.body2,
                 textAlign = TextAlign.Center,
-                color = androidx.compose.ui.graphics.Color.Gray
+                color = Color.Gray
             )
         }
     }
@@ -97,7 +140,7 @@ fun WearLoading(message: String) {
         CircularProgressIndicator(
             modifier = Modifier.size(28.dp),
             strokeWidth = 3.dp,
-            trackColor = androidx.compose.ui.graphics.Color.Red
+            trackColor = Color.Red
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -116,18 +159,16 @@ fun WearError(message: String) {
         icon = ImageVector.vectorResource(R.drawable.ic_warn),
         title = "Phone App Missing",
         subtitle = message,
-        iconTint =androidx.compose.ui.graphics.Color.Red
+        iconTint = Color.Red
     )
 }
 
 @Composable
 fun WearSuccess(message: String) {
     WearBaseScreen(
-        icon =  ImageVector.vectorResource(R.drawable.ic_check),
+        icon = ImageVector.vectorResource(R.drawable.ic_check),
         title = "Fall Detection",
         subtitle = message,
-        iconTint =androidx.compose.ui.graphics.Color(0xFF4CAF50)
+        iconTint = Color(0xFF4CAF50)
     )
 }
-
-

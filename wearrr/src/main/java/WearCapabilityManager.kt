@@ -1,7 +1,10 @@
 import android.content.Context
 import android.net.Uri
+import com.example.wearrr.DummyMessage
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.CapabilityInfo
+import com.google.android.gms.wearable.MessageClient
+import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -10,20 +13,26 @@ import android.util.Log
 
 class WearCapabilityManager(
     context: Context
-) : CapabilityClient.OnCapabilityChangedListener {
+) : CapabilityClient.OnCapabilityChangedListener,
+    MessageClient.OnMessageReceivedListener {
 
     companion object {
         private const val TAG = "WearCapabilityMgr"
         private const val CAPABILITY_NAME = "capability_mobile"
+        private const val MESSAGE_PATH = "/dummy_text"
     }
 
     private val capabilityClient = Wearable.getCapabilityClient(context)
+    private val messageClient = Wearable.getMessageClient(context)
 
     private val _mobileInstalled = MutableStateFlow<Boolean?>(null)
     val mobileInstalled: StateFlow<Boolean?> = _mobileInstalled
 
+    private val _receivedMessage = MutableStateFlow<DummyMessage?>(null)
+    val receivedMessage: StateFlow<DummyMessage?> = _receivedMessage
+
     fun start() {
-        Log.d(TAG, "start() called – registering capability listener")
+        Log.d(TAG, "start() called – registering listeners")
 
         capabilityClient.addListener(
             this,
@@ -31,9 +40,10 @@ class WearCapabilityManager(
             CapabilityClient.FILTER_REACHABLE
         )
 
-        Log.d(TAG, "Capability listener registered")
+        messageClient.addListener(this)
 
-        // Initial capability check
+        Log.d(TAG, "Listeners registered")
+
         Log.d(TAG, "Checking initial capability: $CAPABILITY_NAME")
 
         capabilityClient
@@ -60,9 +70,10 @@ class WearCapabilityManager(
     }
 
     fun stop() {
-        Log.d(TAG, "stop() called – removing capability listener")
+        Log.d(TAG, "stop() called – removing listeners")
         capabilityClient.removeListener(this)
-        Log.d(TAG, "Capability listener removed")
+        messageClient.removeListener(this)
+        Log.d(TAG, "Listeners removed")
     }
 
     override fun onCapabilityChanged(info: CapabilityInfo) {
@@ -81,5 +92,18 @@ class WearCapabilityManager(
             )
         }
     }
-}
 
+    override fun onMessageReceived(event: MessageEvent) {
+        Log.d(TAG, "onMessageReceived() -> path=${event.path}")
+
+        if (event.path == MESSAGE_PATH) {
+            try {
+                val message = DummyMessage.fromBytes(event.data)
+                _receivedMessage.value = message
+                Log.i(TAG, "Message received: $message")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to parse message", e)
+            }
+        }
+    }
+}

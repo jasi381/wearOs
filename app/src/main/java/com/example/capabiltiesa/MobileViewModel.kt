@@ -3,6 +3,7 @@ package com.example.capabiltiesa
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -15,7 +16,7 @@ sealed class MobileUiState {
 }
 
 class MobileViewModel(
-    context: Context
+    private val context: Context
 ) : ViewModel() {
 
     private val manager = MobileCapabilityManager(context)
@@ -35,6 +36,27 @@ class MobileViewModel(
                 MobileUiState.Checking
             )
 
+    private val _onScreen2 = MutableStateFlow(false)
+    val onScreen2: StateFlow<Boolean> = _onScreen2
+
     fun start() = manager.start()
     fun stop() = manager.stop()
+
+    fun navigateToScreen2() {
+        _onScreen2.value = true
+    }
+
+    fun navigateBack() {
+        _onScreen2.value = false
+    }
+
+    fun sendProfile(name: String, imageUrl: String?) {
+        manager.sendMessage(
+            DummyMessage(
+                name = name,
+                photoUrl = imageUrl?.takeIf { it.isNotBlank() },
+                timestamp = System.currentTimeMillis()
+            )
+        )
+    }
 }
