@@ -28,7 +28,7 @@ class WearCapabilityManager(
         capabilityClient.addListener(
             this,
             Uri.parse("wear://*/$CAPABILITY_NAME"),
-            CapabilityClient.FILTER_ALL
+            CapabilityClient.FILTER_REACHABLE
         )
 
         Log.d(TAG, "Capability listener registered")
@@ -39,7 +39,7 @@ class WearCapabilityManager(
         capabilityClient
             .getCapability(
                 CAPABILITY_NAME,
-                CapabilityClient.FILTER_ALL
+                CapabilityClient.FILTER_REACHABLE
             )
             .addOnSuccessListener { info ->
                 val isInstalled = info.nodes.isNotEmpty()
