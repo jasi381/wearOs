@@ -50,16 +50,17 @@ class FallDetector(
     // --- General ---
     private var lastDetectionTime = 0L
     private var logCounter = 0
-    private val accelFilter = EmaFilter(alpha = 0.2f)
+    private val accelFilter = EmaFilter(alpha = 0.15f)  // smoother — reduces noise spikes
 
     companion object {
         private const val TAG = "FallDetector"
 
-        // TODO: restore to 3.0f / 25.0f / 80L for production
-        private const val FREE_FALL_THRESHOLD = 6.0f      // m/s² (lowered for testing)
-        private const val IMPACT_THRESHOLD = 15.0f          // m/s² (lowered for testing)
-        private const val FREE_FALL_MIN_DURATION_MS = 50L   // lowered for testing
-        private const val IMPACT_WINDOW_MS = 500L
+        // Tuned for senior citizens — real falls (stumbles, trips, collapses)
+        // Normal gravity ≈ 9.8 m/s². Free-fall = near 0. Arm swing ≈ 12–15 m/s².
+        private const val FREE_FALL_THRESHOLD = 4.0f       // m/s² — must dip well below gravity
+        private const val IMPACT_THRESHOLD = 20.0f          // m/s² — above arm swings, below hard athletic impacts
+        private const val FREE_FALL_MIN_DURATION_MS = 80L   // real falls have ≥80ms free-fall
+        private const val IMPACT_WINDOW_MS = 700L           // seniors fall slower, allow more time
         private const val COOLDOWN_MS = 30_000L
 
         // Orientation thresholds (gravity sensor z-axis)
@@ -67,10 +68,10 @@ class FallDetector(
         private const val HORIZONTAL_THRESHOLD = 3.0f  // |z| < 3 → lying flat
         private const val ORIENTATION_WINDOW_MS = 2_000L
 
-        // Post-fall immobility check
-        private const val IMMOBILITY_CHECK_MS = 3_000L
-        private const val IMMOBILITY_SAMPLES = 60         // ~3s at 50Hz sampling every other event
-        private const val IMMOBILITY_VARIANCE_THRESHOLD = 2.0f
+        // Post-fall immobility check — seniors typically stay still after a real fall
+        private const val IMMOBILITY_CHECK_MS = 4_000L
+        private const val IMMOBILITY_SAMPLES = 80          // ~4s worth at ~20Hz effective
+        private const val IMMOBILITY_VARIANCE_THRESHOLD = 1.5f  // tighter — real falls = very still
     }
 
     fun start() {
@@ -186,15 +187,17 @@ class FallDetector(
             }
         }
 
-        // ── Method 2: orientation change + moderate impact ──
-        if (hadRecentOrientationChange(now) && magnitude > IMPACT_THRESHOLD * 0.7f) {
+        // ── Method 2: orientation change (upright → lying) + moderate impact ──
+        // Very useful for seniors — many falls are slow collapses with less impact
+        if (hadRecentOrientationChange(now) && magnitude > IMPACT_THRESHOLD * 0.75f) {
             Log.d(TAG, "Orientation change + impact (mag=%.2f) — starting immobility check".format(magnitude))
             beginImmobilityCheck(now)
             return
         }
 
-        // ── Method 3: very high single impact (> 1.5x threshold) ──
-        if (magnitude > IMPACT_THRESHOLD * 1.5f) {
+        // ── Method 3: very high single impact (> 2x threshold = 40 m/s²) ──
+        // Only for extreme impacts — reduces false positives from bumps/knocks
+        if (magnitude > IMPACT_THRESHOLD * 2.0f) {
             Log.d(TAG, "Very high impact (mag=%.2f) — starting immobility check".format(magnitude))
             beginImmobilityCheck(now)
         }
