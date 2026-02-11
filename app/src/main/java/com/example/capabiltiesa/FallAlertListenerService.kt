@@ -14,11 +14,29 @@ class FallAlertListenerService : WearableListenerService() {
 
     override fun onMessageReceived(messageEvent: MessageEvent) {
         if (messageEvent.path == FALL_ALERT_PATH) {
-            Log.d(TAG, "Received fall alert from watch — launching handler")
-            val intent = Intent(this, FallAlertHandlerService::class.java).apply {
-                action = FallAlertHandlerService.ACTION_START
+            Log.d(TAG, "Received fall alert from watch")
+
+            val timestamp = System.currentTimeMillis()
+
+            // Launch MainActivity directly with fall data
+            try {
+                val activityIntent = Intent(this, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    putExtra(MainActivity.EXTRA_FALL_DETECTED, true)
+                    putExtra(MainActivity.EXTRA_FALL_TIMESTAMP, timestamp)
+                }
+                startActivity(activityIntent)
+                Log.d(TAG, "Launched MainActivity with fall intent")
+            } catch (e: Exception) {
+                Log.e(TAG, "Direct activity launch failed", e)
             }
-            startForegroundService(intent)
+
+            // Also start the handler service — posts notification as backup
+            val serviceIntent = Intent(this, FallAlertHandlerService::class.java).apply {
+                action = FallAlertHandlerService.ACTION_START
+                putExtra(MainActivity.EXTRA_FALL_TIMESTAMP, timestamp)
+            }
+            startForegroundService(serviceIntent)
         }
     }
 }

@@ -21,12 +21,14 @@ class FallAlertHandlerService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var timeoutJob: Job? = null
+    private var alertTimestamp: Long = 0L
 
     companion object {
         private const val TAG = "FallAlertHandler"
         private const val CHANNEL_ID = "fall_alert_channel"
         private const val NOTIFICATION_ID = 2001
-        private const val TIMEOUT_MS = 5_000L
+        // Backup timeout — longer than the dialog's 15s countdown so it doesn't race
+        private const val TIMEOUT_MS = 30_000L
 
         const val ACTION_START = "com.example.capabiltiesa.FALL_ALERT_START"
         const val ACTION_OK = "com.example.capabiltiesa.FALL_ALERT_OK"
@@ -40,7 +42,12 @@ class FallAlertHandlerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> handleFallAlert()
+            ACTION_START -> {
+                alertTimestamp = intent.getLongExtra(
+                    MainActivity.EXTRA_FALL_TIMESTAMP, System.currentTimeMillis()
+                )
+                handleFallAlert()
+            }
             ACTION_OK -> handleDismiss()
             ACTION_HELP -> handleHelp()
         }
@@ -56,14 +63,14 @@ class FallAlertHandlerService : Service() {
     }
 
     private fun handleFallAlert() {
-        Log.d(TAG, "Showing fall alert notification on phone")
+        Log.d(TAG, "Posting fall alert notification")
         startForeground(NOTIFICATION_ID, buildAlertNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
 
-        // 5-second timeout
+        // Backup timeout — only fires if neither the dialog nor notification actions respond
         timeoutJob?.cancel()
         timeoutJob = scope.launch {
             delay(TIMEOUT_MS)
-            Log.d(TAG, "No response in ${TIMEOUT_MS / 1000}s — calling API")
+            Log.d(TAG, "Backup timeout — no response in ${TIMEOUT_MS / 1000}s, calling API")
             callApiAndStop()
         }
     }
@@ -75,7 +82,7 @@ class FallAlertHandlerService : Service() {
     }
 
     private fun handleHelp() {
-        Log.d(TAG, "User tapped Send Help — calling API")
+        Log.d(TAG, "User needs help — calling API")
         timeoutJob?.cancel()
         callApiAndStop()
     }
@@ -84,9 +91,9 @@ class FallAlertHandlerService : Service() {
         scope.launch {
             val success = FallAlertApiCaller.sendAlert(context = applicationContext, source = "phone")
             if (success) {
-                Log.d(TAG, "API alert sent successfully from phone")
+                Log.d(TAG, "API alert sent successfully")
             } else {
-                Log.e(TAG, "Phone API alert failed")
+                Log.e(TAG, "API alert failed")
             }
             cleanupAndStop()
         }
@@ -100,6 +107,17 @@ class FallAlertHandlerService : Service() {
     }
 
     private fun buildAlertNotification(): Notification {
+        // Full-screen intent — opens MainActivity with fall data when phone is locked
+        val fullScreenIntent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            putExtra(MainActivity.EXTRA_FALL_DETECTED, true)
+            putExtra(MainActivity.EXTRA_FALL_TIMESTAMP, alertTimestamp)
+        }
+        val fullScreenPending = PendingIntent.getActivity(
+            this, 0, fullScreenIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         // "I'm OK" action
         val okIntent = Intent(this, FallAlertHandlerService::class.java).apply {
             action = ACTION_OK
@@ -109,7 +127,7 @@ class FallAlertHandlerService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // "Send Help" action
+        // "Need Help" action
         val helpIntent = Intent(this, FallAlertHandlerService::class.java).apply {
             action = ACTION_HELP
         }
@@ -120,11 +138,13 @@ class FallAlertHandlerService : Service() {
 
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Fall Detected on Watch!")
-            .setContentText("Sending help in 5 seconds unless you respond")
+            .setContentText("Tap to open or respond below")
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setCategory(Notification.CATEGORY_ALARM)
             .setOngoing(true)
             .setAutoCancel(false)
+            .setFullScreenIntent(fullScreenPending, true)
+            .setContentIntent(fullScreenPending)
             .addAction(
                 Notification.Action.Builder(
                     null, "I'm OK", okPending
@@ -132,7 +152,7 @@ class FallAlertHandlerService : Service() {
             )
             .addAction(
                 Notification.Action.Builder(
-                    null, "Send Help", helpPending
+                    null, "Need Help", helpPending
                 ).build()
             )
             .build()

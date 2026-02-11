@@ -3,5 +3,5 @@
     <!-- Advertise that this is the mobile companion app -->
     <string-array name="android_wear_capabilities">
         <item>capability_mobile</item>
-    </string-array>
+</string-array>
 </resources>
