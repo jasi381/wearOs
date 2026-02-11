@@ -1,130 +1,97 @@
-# Fall Detection on Wear OS
+# Fall Detection — How It Works
 
-## Overview
+## What It Does
 
-The watch continuously monitors the accelerometer for falls. When a fall is detected, the user is prompted on-watch. If they don't respond within 8 seconds or tap "Help", an alert API is called from the watch. If the watch API call fails, the alert is forwarded to the phone as a fallback.
+The smartwatch continuously monitors the wearer's movements using built-in motion sensors. If a fall is detected, the system automatically alerts a caregiver or emergency contact — even if the wearer is unable to respond.
 
-## Architecture
+This feature is designed specifically for **senior citizens**, where falls are a leading cause of serious injury and delayed help can be life-threatening.
 
-```
-[Accelerometer] → [FallDetector] → [FallDetectionService (foreground)]
-                                           |
-                                    Fall detected
-                                           |
-                                    [FallResponseActivity] ← "Are you OK?"
-                                           |
-                         ┌─────────────────┼─────────────────┐
-                     "I'm OK"          "Help"          8s timeout
-                     (dismiss)             |                  |
-                                    [API call from watch]     |
-                                           |                  |
-                                    Success? → done    Same API call
-                                    Failure? ──────┐          |
-                                                   v          v
-                                    [MessageClient "/fall_alert" → Phone]
-                                                   |
-                                    [FallAlertListenerService on phone]
-                                           |
-                                    [API call from phone]
-```
+## How a Fall Is Detected
 
-## Detection Algorithm
+The watch uses its motion sensor to look for the signature pattern of a real fall. Every fall has three phases:
 
-**Sensor:** `TYPE_ACCELEROMETER` at `SENSOR_DELAY_GAME` (~50 Hz)
+1. **Free-fall** — A brief moment of weightlessness as the person loses balance and starts falling. The watch detects this as a sudden, sharp drop in motion force (well below the normal pull of gravity).
 
-The algorithm uses two phases:
+2. **Impact** — The sudden jolt when the person hits the ground. The watch detects this as a spike in force significantly higher than any normal movement like walking, arm swings, or sitting down.
 
-| Phase | Condition | Duration |
-|-------|-----------|----------|
-| Free-fall | Acceleration magnitude < 3.0 m/s² | At least 80 ms |
-| Impact | Acceleration magnitude > 25.0 m/s² | Within 500 ms after free-fall ends |
+3. **Stillness after impact** — After a real fall, especially for seniors, the person typically remains still on the ground for several seconds. The watch monitors for this post-fall stillness over a 4-second window to confirm it was a genuine fall and not just a bump or knock.
 
-A 30-second cooldown prevents duplicate detections.
+All three phases must occur in sequence for a fall to be confirmed. This dramatically reduces false alarms.
 
-**Why accelerometer only?** Gyroscope is not available on all Wear OS devices. The accelerometer is universally supported.
+### Additional Detection Methods
 
-## Files
+Beyond the classic free-fall-then-impact pattern, the watch also detects:
 
-### Watch (`wearrr/.../fall/`)
+- **Collapse with orientation change** — If the watch detects the wrist going from an upright position to a horizontal (lying down) position along with a moderate impact, it flags a potential fall. This catches slow collapses where the free-fall phase is minimal.
 
-| File | Purpose |
-|------|---------|
-| `FallDetector.kt` | `SensorEventListener` — pure detection logic, takes `SensorManager` and a callback |
-| `FallDetectionService.kt` | Foreground service — owns the detector, manages timeout, triggers alert |
-| `FallResponseActivity.kt` | Compose UI — shows countdown, "OK" and "Help" buttons |
-| `FallAlertApiCaller.kt` | HTTP POST to alert API using `HttpURLConnection` |
-| `FallMessageSender.kt` | Sends `/fall_alert` to phone via `MessageClient` |
+- **Extreme impact** — A very high force spike (roughly double the normal fall threshold) triggers a check even without a preceding free-fall. This catches sudden, violent falls.
 
-### Phone (`app/.../`)
+In all cases, the 4-second stillness check must pass before an alert is sent.
 
-| File | Purpose |
-|------|---------|
-| `FallAlertListenerService.kt` | `WearableListenerService` — receives `/fall_alert`, calls API as fallback |
-| `FallAlertApiCaller.kt` | Same HTTP POST logic with `source = "phone"` |
+### Filtering Out False Alarms
 
-## Key Design Decisions
+Several layers work together to prevent false alerts:
 
-### Communication: Static StateFlow
-`FallDetectionService` exposes a `FallState` flow on its companion object. The activity collects this flow to know when to dismiss. No service binding needed.
+- **Noise smoothing** — Sensor readings are continuously smoothed to filter out random vibrations, jolts from transportation, or sensor noise.
+- **Threshold tuning** — The force thresholds are set above what normal daily activities produce (arm swings, clapping, bumping into furniture) but low enough to catch real falls.
+- **Stillness verification** — The strongest filter. Normal activities (sitting down hard, stumbling but catching yourself, dropping the hand) are always followed by continued movement. Only a real fall results in several seconds of near-total stillness.
+- **30-second cooldown** — After a fall is detected, the system waits 30 seconds before it can detect another one, preventing repeated alerts from the same incident.
+
+## What Happens When a Fall Is Detected
 
 ```
-FallState: IDLE → PROMPTING → ALERTING or DISMISSED → IDLE
+Watch detects fall
+       |
+Watch vibrates urgently (SOS pattern) to alert the wearer
+       |
+Watch sends alert to the paired phone
+       |
+Phone shows a notification:
+"Fall Detected on Watch!"
+"Sending help in 5 seconds unless you respond"
+       |
+  ┌────┴─────────────────────┐
+  |                          |
+User taps              No response
+"I'm OK"              within 5 seconds
+  |                          |
+Alert dismissed        Emergency API
+                       is called automatically
+  |
+User taps
+"Send Help"
+  |
+Emergency API
+is called immediately
 ```
 
-### Authoritative Timeout
-The 8-second timer lives in the **service**, not the activity. The activity shows a visual countdown, but the service's `delay(8_000)` coroutine is the source of truth. This ensures the timeout triggers even if the activity is killed by the system.
+### Step by Step
 
-### No HTTP Library
-Uses `java.net.HttpURLConnection` for the single POST call. This avoids adding OkHttp/Retrofit to the watch APK, keeping it lightweight.
+1. **Watch vibrates** — When a fall is confirmed, the watch vibrates with a strong, repeating SOS pattern for about 4 seconds so the wearer knows the system has been triggered.
 
-### Service Configuration
-- `foregroundServiceType="health"` — required for body sensor access from a foreground service
-- `START_STICKY` — system will restart the service if it gets killed
+2. **Phone gets notified** — The watch immediately sends a message to the paired phone.
 
-## Permissions
+3. **Phone shows an alert** — The phone displays an urgent notification with two buttons:
+   - **"I'm OK"** — Tap this to dismiss the alert. Nothing further happens.
+   - **"Send Help"** — Tap this to immediately call the emergency API.
 
-### Watch (`wearrr/AndroidManifest.xml`)
-- `FOREGROUND_SERVICE` — run a foreground service
-- `FOREGROUND_SERVICE_HEALTH` — foreground service type health
-- `BODY_SENSORS` — access accelerometer (runtime permission)
-- `HIGH_SAMPLING_RATE_SENSORS` — use `SENSOR_DELAY_GAME` rate
+4. **5-second auto-escalation** — If nobody taps either button within 5 seconds, the system assumes the person needs help and automatically calls the emergency API. This is critical for situations where the person is unconscious or the phone is out of reach.
 
-### Phone (`app/AndroidManifest.xml`)
-- `INTERNET` — already present, used for API call
+## Why the Phone Handles the Alert (Not the Watch)
 
-## API Endpoint
+- **Better notifications** — Phone notifications are louder, more visible, and easier to interact with than tiny watch screens.
+- **More reliable networking** — Phones have stronger Wi-Fi and cellular connections for making the emergency API call.
+- **Battery friendly** — Keeping network calls off the watch preserves its battery for continuous fall monitoring.
+- **Caregiver access** — A caregiver or family member nearby is more likely to see and respond to the phone notification.
 
-Both callers POST to a placeholder URL:
+## Sensors Used
 
-```
-POST https://example.com/api/fall-alert
-Content-Type: application/json
+- **Accelerometer** — Measures motion force in all directions. Available on every smartwatch. This is the primary sensor for fall detection.
+- **Gravity sensor** — Detects the orientation of the wrist (upright vs. lying flat). Used to catch slow collapses. If a watch doesn't have this sensor, the system still works using the accelerometer alone.
 
-{"source": "watch|phone", "timestamp": 1234567890}
-```
+## Limitations
 
-Replace `ALERT_URL` in both `FallAlertApiCaller.kt` files (watch and phone) with the real endpoint.
-
-## Testing
-
-### Build
-```bash
-./gradlew :app:assembleDebug :wearrr:assembleDebug
-```
-
-### Manual Testing
-1. Install both APKs on watch and phone
-2. Watch shows "Fall Detection Active" notification
-3. To test without a real fall, temporarily lower thresholds in `FallDetector.kt`:
-   - `FREE_FALL_THRESHOLD` → `6.0f`
-   - `IMPACT_THRESHOLD` → `15.0f`
-4. Shake the watch sharply → `FallResponseActivity` should appear
-5. Tap "OK" → dismisses
-6. Trigger again, tap "Help" or wait 8s → logcat shows API call attempt and phone fallback
-
-### Logcat Tags
-| Tag | Source |
-|-----|--------|
-| `FallDetectionService` | Service lifecycle, fall events, alert flow |
-| `FallMessageSender` | Watch-to-phone messaging |
-| `FallAlertListener` | Phone-side alert handling |
+- **Not 100% accurate** — No fall detection system is perfect. Some unusual falls may not match the expected pattern, and some vigorous activities could occasionally trigger a false alert.
+- **Watch must be worn** — The watch needs to be on the wrist for detection to work. Leaving it on a table or in a bag will not produce meaningful results.
+- **Phone must be paired** — The alert is sent to the paired phone. If the phone is off, out of Bluetooth range, or disconnected, the alert cannot be delivered.
+- **Requires the app to be running** — The fall detection service runs in the background, but if the app is force-closed or the watch is restarted, the service needs to be started again by opening the app.
