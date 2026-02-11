@@ -1,12 +1,16 @@
 package com.example.wearrr.presentation
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,12 +38,25 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 
+import com.example.wearrr.fall.FallDetectionService
 import com.example.wearrr.presentation.theme.CapabiltiesaTheme
 
 
 class WatchActivity : ComponentActivity() {
 
     private lateinit var viewModel: WearViewModel
+
+    private val bodySensorsPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        Log.d("WatchActivity", "BODY_SENSORS permission result: $granted")
+        if (granted) {
+            startFallDetection()
+        } else {
+            Log.w("WatchActivity", "BODY_SENSORS denied — starting service anyway (accel may still work)")
+            startFallDetection()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -56,6 +73,27 @@ class WatchActivity : ComponentActivity() {
                 WearHomeScreen(viewModel)
             }
         }
+
+        // Accelerometer does NOT require BODY_SENSORS (that's for heart rate/SpO2).
+        // Start fall detection service directly. Request BODY_SENSORS in background
+        // for future biometric features.
+        startFallDetection()
+        requestBodySensorsPermission()
+    }
+
+    private fun requestBodySensorsPermission() {
+        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.BODY_SENSORS) ==
+            PackageManager.PERMISSION_GRANTED
+        Log.d("WatchActivity", "BODY_SENSORS already granted: $granted")
+        if (!granted) {
+            bodySensorsPermissionLauncher.launch(Manifest.permission.BODY_SENSORS)
+        }
+    }
+
+    private fun startFallDetection() {
+        Log.d("WatchActivity", "Starting FallDetectionService")
+        val intent = Intent(this, FallDetectionService::class.java)
+        startForegroundService(intent)
     }
 
     override fun onStart() {
