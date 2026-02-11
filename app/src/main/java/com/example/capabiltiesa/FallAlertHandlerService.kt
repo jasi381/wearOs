@@ -82,7 +82,7 @@ class FallAlertHandlerService : Service() {
 
     private fun callApiAndStop() {
         scope.launch {
-            val success = FallAlertApiCaller.sendAlert(source = "phone")
+            val success = FallAlertApiCaller.sendAlert(context = applicationContext, source = "phone")
             if (success) {
                 Log.d(TAG, "API alert sent successfully from phone")
             } else {
