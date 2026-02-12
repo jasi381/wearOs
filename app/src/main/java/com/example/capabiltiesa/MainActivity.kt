@@ -1,5 +1,6 @@
 package com.example.capabiltiesa
 
+import android.app.KeyguardManager
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -8,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -112,12 +114,30 @@ class MainActivity : ComponentActivity() {
 
     private fun handleFallIntent(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_FALL_DETECTED, false) == true) {
-            Log.d(TAG, "Fall intent received — showing dialog")
+            Log.d(TAG, "Fall intent received — showing dialog over lock screen")
             fallTimestamp = intent.getLongExtra(EXTRA_FALL_TIMESTAMP, System.currentTimeMillis())
             showFallDialog.value = true
+            showOverLockScreen()
             // Clear the extra so it doesn't re-trigger on config change
             intent.removeExtra(EXTRA_FALL_DETECTED)
         }
+    }
+
+    private fun showOverLockScreen() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+            val keyguardManager = getSystemService(KeyguardManager::class.java)
+            keyguardManager.requestDismissKeyguard(this, null)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                        or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                        or WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+            )
+        }
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     private fun sendActionToHandler(action: String) {
