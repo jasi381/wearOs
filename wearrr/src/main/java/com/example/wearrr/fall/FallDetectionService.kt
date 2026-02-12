@@ -35,9 +35,9 @@ class FallDetectionService : Service() {
         private var instance: FallDetectionService? = null
         private var lastAlertTime = 0L
 
-        fun simulateFall() {
-            Log.d(TAG, "Simulating fall!")
-            instance?.onFallDetected()
+        fun simulateFall(fallType: String = "high_impact") {
+            Log.d(TAG, "Simulating fall: $fallType")
+            instance?.fallDetector?.triggerSimulatedFall(fallType)
         }
     }
 
@@ -60,7 +60,7 @@ class FallDetectionService : Service() {
         }
 
         val sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
-        fallDetector = FallDetector(sensorManager) { onFallDetected() }
+        fallDetector = FallDetector(sensorManager) { _, _ -> onFallDetected() }
         fallDetector.start()
         Log.d(TAG, "Fall detection service started")
     }

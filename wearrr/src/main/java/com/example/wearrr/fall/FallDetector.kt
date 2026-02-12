@@ -5,91 +5,61 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.util.Log
-import kotlin.math.abs
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.pow
 import kotlin.math.sqrt
-
-/**
- * Exponential Moving Average filter to smooth sensor noise
- * while preserving sharp fall signatures.
- */
-private class EmaFilter(private val alpha: Float = 0.2f) {
-    private var filtered: FloatArray? = null
-
-    fun apply(raw: FloatArray): FloatArray {
-        val prev = filtered
-        val result = if (prev == null) {
-            raw.clone()
-        } else {
-            FloatArray(raw.size) { i -> alpha * raw[i] + (1 - alpha) * prev[i] }
-        }
-        filtered = result
-        return result
-    }
-}
 
 class FallDetector(
     private val sensorManager: SensorManager,
-    private val onFallDetected: () -> Unit
+    private val onFallDetected: (acceleration: Double, gyro: Double) -> Unit
 ) : SensorEventListener {
-
-    // --- Free-fall + impact state ---
-    private var freeFallStartTime = 0L
-    private var freeFallEndTime = 0L
-    private var inFreeFall = false
-    private var waitingForImpact = false
-
-    // --- Immobility verification state ---
-    private var fallSuspected = false
-    private var suspectTime = 0L
-    private val recentMagnitudes = ArrayDeque<Float>(IMMOBILITY_SAMPLES)
-
-    // --- Orientation state (from gravity sensor) ---
-    private var isVertical = true
-    private var lastOrientationChangeTime = 0L
-
-    // --- General ---
-    private var lastDetectionTime = 0L
-    private var logCounter = 0
-    private val accelFilter = EmaFilter(alpha = 0.15f)  // smoother — reduces noise spikes
 
     companion object {
         private const val TAG = "FallDetector"
 
-        // Tuned for senior citizens — real falls (stumbles, trips, collapses)
-        // Normal gravity ≈ 9.8 m/s². Free-fall = near 0. Arm swing ≈ 12–15 m/s².
-        private const val FREE_FALL_THRESHOLD = 4.0f       // m/s² — must dip well below gravity
-        private const val IMPACT_THRESHOLD = 20.0f          // m/s² — above arm swings, below hard athletic impacts
-        private const val FREE_FALL_MIN_DURATION_MS = 80L   // real falls have ≥80ms free-fall
-        private const val IMPACT_WINDOW_MS = 700L           // seniors fall slower, allow more time
-        private const val COOLDOWN_MS = 30_000L
+        private const val HIGH_IMPACT_THRESHOLD = 25.0
+        private const val FREE_FALL_THRESHOLD = 4.0
+        private const val GYRO_THRESHOLD = 4.0
+        private const val GRAVITY_BASELINE = 9.81
 
-        // Orientation thresholds (gravity sensor z-axis)
-        private const val VERTICAL_THRESHOLD = 7.0f    // z > 7 → upright
-        private const val HORIZONTAL_THRESHOLD = 3.0f  // |z| < 3 → lying flat
-        private const val ORIENTATION_WINDOW_MS = 2_000L
-
-        // Post-fall immobility check — seniors typically stay still after a real fall
-        private const val IMMOBILITY_CHECK_MS = 4_000L
-        private const val IMMOBILITY_SAMPLES = 80          // ~4s worth at ~20Hz effective
-        private const val IMMOBILITY_VARIANCE_THRESHOLD = 1.5f  // tighter — real falls = very still
+        private const val HISTORY_SIZE = 10
+        private const val MIN_FREEFALL_DURATION = 300L
+        private const val MAX_FREEFALL_DURATION = 2000L
+        private const val COOLDOWN_MS = 10_000L
     }
+
+    private var lastAcceleration = FloatArray(3)
+    private var lastGyroscope = FloatArray(3)
+    private var lastFallDetectionTime = 0L
+
+    private val accelerationHistory = mutableListOf<Double>()
+    private val gyroHistory = mutableListOf<Double>()
+    private var isInFreeFall = false
+    private var freeFallStartTime = 0L
+
+    var simulationMode = false
+        private set
+
+    private var logCounter = 0
 
     fun start() {
         val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        if (accel == null) {
-            Log.e(TAG, "No accelerometer sensor available!")
-            return
-        }
-        val accelOk = sensorManager.registerListener(this, accel, SensorManager.SENSOR_DELAY_GAME)
-        Log.d(TAG, "Accelerometer listener registered: $accelOk")
-
-        // Gravity sensor for orientation — optional, not all devices have it
-        val gravity = sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY)
-        if (gravity != null) {
-            val gravOk = sensorManager.registerListener(this, gravity, SensorManager.SENSOR_DELAY_GAME)
-            Log.d(TAG, "Gravity sensor listener registered: $gravOk")
+        if (accel != null) {
+            val ok = sensorManager.registerListener(this, accel, SensorManager.SENSOR_DELAY_NORMAL)
+            Log.d(TAG, "Accelerometer registered: $ok")
         } else {
-            Log.w(TAG, "No gravity sensor — orientation detection disabled")
+            Log.e(TAG, "No accelerometer available!")
+        }
+
+        val gyro = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        if (gyro != null) {
+            val ok = sensorManager.registerListener(this, gyro, SensorManager.SENSOR_DELAY_NORMAL)
+            Log.d(TAG, "Gyroscope registered: $ok")
+        } else {
+            Log.w(TAG, "No gyroscope available — tumbling detection disabled")
         }
     }
 
@@ -97,152 +67,172 @@ class FallDetector(
         sensorManager.unregisterListener(this)
     }
 
+    fun setSimulation(enabled: Boolean) {
+        simulationMode = enabled
+        Log.d(TAG, "Simulation mode: $enabled")
+    }
+
+    fun triggerSimulatedFall(fallType: String) {
+        Log.d(TAG, "Simulating fall: $fallType")
+        resetState()
+
+        when (fallType) {
+            "high_impact" -> {
+                lastAcceleration = floatArrayOf(8.0f, -12.0f, 30.0f)
+                lastGyroscope = floatArrayOf(2.0f, -3.0f, 4.5f)
+                checkForFall()
+            }
+            "gradual_fall" -> {
+                simulateGradualFall()
+            }
+            "false_positive_test" -> {
+                lastAcceleration = floatArrayOf(1.5f, 2.5f, 11.0f)
+                lastGyroscope = floatArrayOf(0.3f, 0.8f, 1.2f)
+                checkForFall()
+            }
+        }
+    }
+
+    private fun simulateGradualFall() {
+        CoroutineScope(Dispatchers.IO).launch {
+            lastAcceleration = floatArrayOf(1.0f, 2.0f, 10.0f)
+            lastGyroscope = floatArrayOf(0.5f, 1.0f, 0.8f)
+            checkForFall()
+            delay(100)
+
+            lastAcceleration = floatArrayOf(0.5f, 0.8f, 2.5f)
+            lastGyroscope = floatArrayOf(1.5f, 2.0f, 1.8f)
+            checkForFall()
+            delay(200)
+
+            lastAcceleration = floatArrayOf(0.3f, 0.6f, 3.2f)
+            lastGyroscope = floatArrayOf(2.0f, 2.5f, 2.2f)
+            checkForFall()
+            delay(200)
+
+            lastAcceleration = floatArrayOf(4.0f, -6.0f, 18.0f)
+            lastGyroscope = floatArrayOf(3.5f, -4.2f, 5.0f)
+            checkForFall()
+        }
+    }
+
     override fun onSensorChanged(event: SensorEvent) {
+        if (simulationMode) return
+
         when (event.sensor.type) {
-            Sensor.TYPE_ACCELEROMETER -> handleAccelerometer(event)
-            Sensor.TYPE_GRAVITY -> handleGravity(event)
-        }
-    }
-
-    // ──────────────────────────────────────────────
-    // Gravity → orientation tracking
-    // ──────────────────────────────────────────────
-    private fun handleGravity(event: SensorEvent) {
-        val z = event.values[2]
-        val now = System.currentTimeMillis()
-
-        if (isVertical && abs(z) < HORIZONTAL_THRESHOLD) {
-            // Went from vertical to horizontal
-            isVertical = false
-            lastOrientationChangeTime = now
-            Log.d(TAG, "Orientation: vertical → horizontal (z=%.2f)".format(z))
-        } else if (!isVertical && z > VERTICAL_THRESHOLD) {
-            isVertical = true
-            lastOrientationChangeTime = now
-        }
-    }
-
-    private fun hadRecentOrientationChange(now: Long): Boolean {
-        return !isVertical && (now - lastOrientationChangeTime) < ORIENTATION_WINDOW_MS
-    }
-
-    // ──────────────────────────────────────────────
-    // Accelerometer → fall detection pipeline
-    // ──────────────────────────────────────────────
-    private fun handleAccelerometer(event: SensorEvent) {
-        val smoothed = accelFilter.apply(event.values)
-        val magnitude = sqrt(
-            smoothed[0] * smoothed[0] +
-            smoothed[1] * smoothed[1] +
-            smoothed[2] * smoothed[2]
-        )
-        val now = System.currentTimeMillis()
-
-        // Periodic logging (~every 2s)
-        if (++logCounter % 100 == 0) {
-            Log.d(TAG, "mag=%.2f  freeFall=%b  suspect=%b  vert=%b".format(
-                magnitude, inFreeFall, fallSuspected, isVertical
-            ))
-        }
-
-        // Feed immobility buffer
-        trackMagnitude(magnitude)
-
-        // If we're in the immobility-verification window, check that instead
-        if (fallSuspected) {
-            checkImmobility(now)
-            return   // don't start new detection while verifying
-        }
-
-        // Cooldown
-        if (lastDetectionTime != 0L && now - lastDetectionTime < COOLDOWN_MS) return
-
-        // ── Method 1: free-fall → impact ──
-        if (magnitude < FREE_FALL_THRESHOLD) {
-            if (!inFreeFall) {
-                inFreeFall = true
-                freeFallStartTime = now
-                Log.d(TAG, "Free-fall started (mag=%.2f)".format(magnitude))
+            Sensor.TYPE_ACCELEROMETER -> {
+                lastAcceleration = event.values.clone()
+                checkForFall()
             }
-        } else {
-            if (inFreeFall) {
-                val duration = now - freeFallStartTime
-                if (duration >= FREE_FALL_MIN_DURATION_MS) {
-                    waitingForImpact = true
-                    freeFallEndTime = now
-                    Log.d(TAG, "Free-fall ended after %dms, watching for impact".format(duration))
-                }
-                inFreeFall = false
+            Sensor.TYPE_GYROSCOPE -> {
+                lastGyroscope = event.values.clone()
             }
-        }
-
-        if (waitingForImpact) {
-            if (now - freeFallEndTime > IMPACT_WINDOW_MS) {
-                waitingForImpact = false
-            } else if (magnitude > IMPACT_THRESHOLD) {
-                Log.d(TAG, "Impact after free-fall (mag=%.2f) — starting immobility check".format(magnitude))
-                waitingForImpact = false
-                beginImmobilityCheck(now)
-                return
-            }
-        }
-
-        // ── Method 2: orientation change (upright → lying) + moderate impact ──
-        // Very useful for seniors — many falls are slow collapses with less impact
-        if (hadRecentOrientationChange(now) && magnitude > IMPACT_THRESHOLD * 0.75f) {
-            Log.d(TAG, "Orientation change + impact (mag=%.2f) — starting immobility check".format(magnitude))
-            beginImmobilityCheck(now)
-            return
-        }
-
-        // ── Method 3: very high single impact (> 2x threshold = 40 m/s²) ──
-        // Only for extreme impacts — reduces false positives from bumps/knocks
-        if (magnitude > IMPACT_THRESHOLD * 2.0f) {
-            Log.d(TAG, "Very high impact (mag=%.2f) — starting immobility check".format(magnitude))
-            beginImmobilityCheck(now)
-        }
-    }
-
-    // ──────────────────────────────────────────────
-    // Immobility verification (reduces false positives)
-    // ──────────────────────────────────────────────
-    private fun beginImmobilityCheck(now: Long) {
-        fallSuspected = true
-        suspectTime = now
-        recentMagnitudes.clear()
-        Log.d(TAG, "Immobility check started (${IMMOBILITY_CHECK_MS}ms window)")
-    }
-
-    private fun trackMagnitude(mag: Float) {
-        if (recentMagnitudes.size >= IMMOBILITY_SAMPLES) recentMagnitudes.removeFirst()
-        recentMagnitudes.addLast(mag)
-    }
-
-    private fun checkImmobility(now: Long) {
-        val elapsed = now - suspectTime
-
-        if (elapsed < 1_000) return // wait at least 1s before judging
-
-        if (elapsed >= IMMOBILITY_CHECK_MS) {
-            // Time's up — check variance
-            if (recentMagnitudes.size >= 10) {
-                val mean = recentMagnitudes.average().toFloat()
-                val variance = recentMagnitudes.map { (it - mean) * (it - mean) }.average().toFloat()
-
-                if (variance < IMMOBILITY_VARIANCE_THRESHOLD) {
-                    Log.d(TAG, "Immobility confirmed (variance=%.3f) — FALL DETECTED".format(variance))
-                    lastDetectionTime = now
-                    fallSuspected = false
-                    onFallDetected()
-                    return
-                } else {
-                    Log.d(TAG, "Movement after suspected fall (variance=%.3f) — false positive".format(variance))
-                }
-            }
-            // Not immobile or not enough data → dismiss
-            fallSuspected = false
         }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    private fun checkForFall() {
+        val totalAcceleration = sqrt(
+            lastAcceleration[0].pow(2) +
+            lastAcceleration[1].pow(2) +
+            lastAcceleration[2].pow(2)
+        ).toDouble()
+
+        val totalGyro = sqrt(
+            lastGyroscope[0].pow(2) +
+            lastGyroscope[1].pow(2) +
+            lastGyroscope[2].pow(2)
+        ).toDouble()
+
+        val currentTime = System.currentTimeMillis()
+
+        addToHistory(totalAcceleration, totalGyro)
+
+        val fallDetected = detectAdvancedFall(totalAcceleration, totalGyro, currentTime)
+        val cooldownPassed = (currentTime - lastFallDetectionTime) > COOLDOWN_MS
+
+        if (++logCounter % 30 == 0) {
+            val mode = if (simulationMode) "[SIM]" else "[REAL]"
+            Log.d(TAG, "$mode accel=%.2f gyro=%.2f freeFall=%b avgAccel=%.2f".format(
+                totalAcceleration, totalGyro, isInFreeFall, getAverageAcceleration()
+            ))
+        }
+
+        if (cooldownPassed && fallDetected) {
+            lastFallDetectionTime = currentTime
+            resetState()
+            onFallDetected(totalAcceleration, totalGyro)
+        }
+    }
+
+    private fun detectAdvancedFall(accel: Double, gyro: Double, currentTime: Long): Boolean {
+        // Method 1: Extremely high impact
+        if (accel > HIGH_IMPACT_THRESHOLD) {
+            Log.d(TAG, "HIGH IMPACT detected: $accel")
+            return true
+        }
+
+        // Method 2: Free-fall followed by impact
+        val isCurrentlyFreeFall = accel < FREE_FALL_THRESHOLD
+
+        if (isCurrentlyFreeFall && !isInFreeFall) {
+            isInFreeFall = true
+            freeFallStartTime = currentTime
+            Log.d(TAG, "Free-fall started")
+        } else if (!isCurrentlyFreeFall && isInFreeFall) {
+            val freeFallDuration = currentTime - freeFallStartTime
+            isInFreeFall = false
+            Log.d(TAG, "Free-fall ended, duration: ${freeFallDuration}ms")
+
+            if (freeFallDuration in MIN_FREEFALL_DURATION..MAX_FREEFALL_DURATION &&
+                accel > GRAVITY_BASELINE * 1.5 &&
+                gyro > GYRO_THRESHOLD
+            ) {
+                Log.d(TAG, "Valid fall pattern: freefall ${freeFallDuration}ms + impact")
+                return true
+            }
+        }
+
+        // Method 3: Sustained tumbling (high variance + high rotation)
+        if (accelerationHistory.size >= HISTORY_SIZE) {
+            val variance = calculateAccelerationVariance()
+            val avgGyro = getAverageGyro()
+
+            if (variance > 50.0 && avgGyro > GYRO_THRESHOLD * 1.5) {
+                Log.d(TAG, "Tumbling pattern detected: variance=%.2f avgGyro=%.2f".format(variance, avgGyro))
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private fun addToHistory(accel: Double, gyro: Double) {
+        accelerationHistory.add(accel)
+        gyroHistory.add(gyro)
+        if (accelerationHistory.size > HISTORY_SIZE) accelerationHistory.removeAt(0)
+        if (gyroHistory.size > HISTORY_SIZE) gyroHistory.removeAt(0)
+    }
+
+    private fun getAverageAcceleration(): Double {
+        return if (accelerationHistory.isNotEmpty()) accelerationHistory.average() else GRAVITY_BASELINE
+    }
+
+    private fun getAverageGyro(): Double {
+        return if (gyroHistory.isNotEmpty()) gyroHistory.average() else 0.0
+    }
+
+    private fun calculateAccelerationVariance(): Double {
+        if (accelerationHistory.size < 2) return 0.0
+        val mean = accelerationHistory.average()
+        return accelerationHistory.map { (it - mean).pow(2) }.average()
+    }
+
+    private fun resetState() {
+        isInFreeFall = false
+        freeFallStartTime = 0L
+        accelerationHistory.clear()
+        gyroHistory.clear()
+    }
 }
