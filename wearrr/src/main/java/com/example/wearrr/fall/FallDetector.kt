@@ -75,6 +75,7 @@ class FallDetector(
     fun triggerSimulatedFall(fallType: String) {
         Log.d(TAG, "Simulating fall: $fallType")
         resetState()
+        lastFallDetectionTime = 0L // bypass cooldown for simulation
 
         when (fallType) {
             "high_impact" -> {

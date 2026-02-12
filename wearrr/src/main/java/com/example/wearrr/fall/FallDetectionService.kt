@@ -37,6 +37,9 @@ class FallDetectionService : Service() {
 
         fun simulateFall(fallType: String = "high_impact") {
             Log.d(TAG, "Simulating fall: $fallType")
+            // Reset service-level cooldown so simulation always works
+            lastAlertTime = 0L
+            instance?.alertInProgress = false
             instance?.fallDetector?.triggerSimulatedFall(fallType)
         }
     }
