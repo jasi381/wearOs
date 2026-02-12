@@ -51,7 +51,7 @@ class FallDetectionService : Service() {
         startForeground(
             NOTIFICATION_ID,
             buildOngoingNotification(),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         )
 
         vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

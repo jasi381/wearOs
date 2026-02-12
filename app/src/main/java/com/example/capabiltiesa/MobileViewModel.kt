@@ -6,12 +6,13 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 
 sealed class MobileUiState {
     object Checking : MobileUiState()
     object WearNotInstalled : MobileUiState()
+    object Disconnected : MobileUiState()
     object Connected : MobileUiState()
 }
 
@@ -22,19 +23,19 @@ class MobileViewModel(
     private val manager = MobileCapabilityManager(context)
 
     val uiState: StateFlow<MobileUiState> =
-        manager.wearInstalled
-            .map { installed ->
-                when (installed) {
-                    null -> MobileUiState.Checking
-                    true -> MobileUiState.Connected
-                    false -> MobileUiState.WearNotInstalled
-                }
+        combine(manager.peerInstalled, manager.peerReachable) { installed, reachable ->
+            when {
+                installed == null || reachable == null -> MobileUiState.Checking
+                reachable -> MobileUiState.Connected
+                installed -> MobileUiState.Disconnected
+                else -> MobileUiState.WearNotInstalled
             }
-            .stateIn(
-                viewModelScope,
-                SharingStarted.WhileSubscribed(5_000),
-                MobileUiState.Checking
-            )
+        }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            MobileUiState.Checking
+        )
 
     private val _onScreen2 = MutableStateFlow(false)
     val onScreen2: StateFlow<Boolean> = _onScreen2

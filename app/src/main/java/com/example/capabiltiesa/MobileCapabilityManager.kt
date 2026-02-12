@@ -23,8 +23,11 @@ class MobileCapabilityManager(
     private val capabilityClient = Wearable.getCapabilityClient(context)
     private val messageClient = Wearable.getMessageClient(context)
 
-    private val _wearInstalled = MutableStateFlow<Boolean?>(null)
-    val wearInstalled: StateFlow<Boolean?> = _wearInstalled
+    private val _peerInstalled = MutableStateFlow<Boolean?>(null)
+    val peerInstalled: StateFlow<Boolean?> = _peerInstalled
+
+    private val _peerReachable = MutableStateFlow<Boolean?>(null)
+    val peerReachable: StateFlow<Boolean?> = _peerReachable
 
     private var wearNodeId: String? = null
 
@@ -39,22 +42,25 @@ class MobileCapabilityManager(
 
         Log.d(TAG, "Capability listener registered")
 
-        Log.d(TAG, "Checking initial capability: $CAPABILITY_NAME")
-
+        // Check if app is installed anywhere (even if not reachable right now)
         capabilityClient
-            .getCapability(
-                CAPABILITY_NAME,
-                CapabilityClient.FILTER_REACHABLE
-            )
+            .getCapability(CAPABILITY_NAME, CapabilityClient.FILTER_ALL)
+            .addOnSuccessListener { info ->
+                _peerInstalled.value = info.nodes.isNotEmpty()
+                Log.d(TAG, "FILTER_ALL -> installed=${info.nodes.isNotEmpty()}, nodes=${info.nodes}")
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to fetch FILTER_ALL capability", e)
+            }
+
+        // Check if app is currently reachable (installed + connected)
+        capabilityClient
+            .getCapability(CAPABILITY_NAME, CapabilityClient.FILTER_REACHABLE)
             .addOnSuccessListener { info ->
                 updateNodes(info)
             }
-            .addOnFailureListener { exception ->
-                Log.e(
-                    TAG,
-                    "Failed to fetch capability: $CAPABILITY_NAME",
-                    exception
-                )
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to fetch FILTER_REACHABLE capability", e)
             }
     }
 
@@ -83,10 +89,7 @@ class MobileCapabilityManager(
     }
 
     override fun onCapabilityChanged(info: CapabilityInfo) {
-        Log.d(
-            TAG,
-            "onCapabilityChanged() -> name=${info.name}, nodes=${info.nodes}"
-        )
+        Log.d(TAG, "onCapabilityChanged() -> name=${info.name}, nodes=${info.nodes}")
 
         if (info.name == CAPABILITY_NAME) {
             updateNodes(info)
@@ -94,13 +97,22 @@ class MobileCapabilityManager(
     }
 
     private fun updateNodes(info: CapabilityInfo) {
-        val isInstalled = info.nodes.isNotEmpty()
+        val isReachable = info.nodes.isNotEmpty()
         wearNodeId = info.nodes.firstOrNull()?.id
-        _wearInstalled.value = isInstalled
+        _peerReachable.value = isReachable
 
-        Log.i(
-            TAG,
-            "Nodes updated -> wearInstalled=$isInstalled, nodeId=$wearNodeId"
-        )
+        if (isReachable) {
+            _peerInstalled.value = true
+        } else {
+            // Reachable went false — re-check FILTER_ALL to distinguish uninstall vs disconnect
+            capabilityClient
+                .getCapability(CAPABILITY_NAME, CapabilityClient.FILTER_ALL)
+                .addOnSuccessListener { allInfo ->
+                    _peerInstalled.value = allInfo.nodes.isNotEmpty()
+                    Log.d(TAG, "Re-check FILTER_ALL -> installed=${allInfo.nodes.isNotEmpty()}")
+                }
+        }
+
+        Log.i(TAG, "Nodes updated -> reachable=$isReachable, nodeId=$wearNodeId")
     }
 }

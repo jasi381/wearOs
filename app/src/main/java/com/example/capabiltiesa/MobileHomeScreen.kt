@@ -49,6 +49,10 @@ fun MobileHomeScreen(viewModel: MobileViewModel) {
             MissingWearScreen()
         }
 
+        MobileUiState.Disconnected -> {
+            DisconnectedScreen()
+        }
+
         MobileUiState.Connected -> {
             if (onScreen2) {
                 Screen2(
@@ -167,6 +171,41 @@ fun Screen2(
         OutlinedButton(onClick = onBack) {
             Text("Go Back")
         }
+    }
+}
+
+@Composable
+fun DisconnectedScreen() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            imageVector = ImageVector.vectorResource(R.drawable.ic_warn),
+            contentDescription = null,
+            tint = Color(0xFFFF9800),
+            modifier = Modifier.size(72.dp)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Watch Disconnected",
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "Your smartwatch is not connected. Make sure Bluetooth is on and both devices are nearby.",
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            color = Color.Gray
+        )
     }
 }
 

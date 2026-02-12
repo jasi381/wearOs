@@ -64,7 +64,7 @@ class FallAlertHandlerService : Service() {
 
     private fun handleFallAlert() {
         Log.d(TAG, "Posting fall alert notification")
-        startForeground(NOTIFICATION_ID, buildAlertNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        startForeground(NOTIFICATION_ID, buildAlertNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
 
         // Backup timeout — only fires if neither the dialog nor notification actions respond
         timeoutJob?.cancel()

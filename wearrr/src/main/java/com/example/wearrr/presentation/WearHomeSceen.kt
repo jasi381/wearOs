@@ -47,6 +47,10 @@ fun WearHomeScreen(viewModel: WearViewModel) {
             WearError("Install phone app to enable Fall Detection")
         }
 
+        WearUiState.Disconnected -> {
+            WearDisconnected()
+        }
+
         WearUiState.Connected -> {
             if (message != null) {
                 WearMessageScreen(message!!)
@@ -156,6 +160,16 @@ fun WearLoading(message: String) {
             textAlign = TextAlign.Center
         )
     }
+}
+
+@Composable
+fun WearDisconnected() {
+    WearBaseScreen(
+        icon = ImageVector.vectorResource(R.drawable.ic_warn),
+        title = "Phone Disconnected",
+        subtitle = "Turn on Bluetooth and keep devices nearby",
+        iconTint = Color(0xFFFF9800)
+    )
 }
 
 @Composable

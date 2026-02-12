@@ -39,24 +39,30 @@ android {
 }
 
 dependencies {
+    // Compose BOM
+    implementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+
+    // Core dependencies
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
     implementation(libs.play.services.wearable)
     implementation(libs.kotlinx.serialization.json)
-    implementation(platform(libs.androidx.compose.bom))
+
+    // Compose UI
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
-    implementation(libs.androidx.compose.foundation)
-    implementation(libs.androidx.wear.tooling.preview)
-    implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.core.splashscreen)
-    implementation(libs.coil.compose)
-    implementation(libs.kotlinx.coroutines.play.services)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
-    debugImplementation(libs.androidx.compose.ui.tooling)
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
-    implementation("androidx.wear.compose:compose-navigation:1.5.6")
-    implementation(libs.androidx.wear.compose.material3)
-    implementation(libs.lottie.compose)
 
+    // Image loading
+    implementation(libs.coil.compose)
+
+    // Wear-specific dependencies
+    implementation(libs.bundles.wear)
+
+    // Debug tools
+    debugImplementation(libs.bundles.debug)
+
+    // Testing
+    androidTestImplementation(libs.bundles.testing)
 }
