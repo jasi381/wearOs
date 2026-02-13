@@ -13,12 +13,19 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -42,9 +49,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
@@ -52,6 +66,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.example.capabiltiesa.ui.theme.CapabiltiesaTheme
 import kotlinx.coroutines.delay
+import kotlin.math.cos
+import kotlin.math.sin
 
 class MainActivity : ComponentActivity() {
 
@@ -330,4 +346,192 @@ class MobileViewModelFactory(
         }
         throw IllegalArgumentException("Unknown ViewModel")
     }
+}
+
+
+@Composable
+fun PhoneSearchAnimation(
+    modifier: Modifier = Modifier,
+    phoneColor: Color = Color.White,
+    dotColor: Color = Color.White, // yellowish dot
+    backgroundColor: Color = Color.Black,
+    animationDurationMs: Int = 2800
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "orbit")
+
+    val angle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = animationDurationMs,
+                easing = LinearEasing
+            ),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "orbitAngle"
+    )
+
+    Canvas(modifier = modifier.background(backgroundColor)) {
+        val centerX = size.width / 2
+        val centerY = size.height / 2
+
+        // Phone icon dimensions
+        val phoneWidth = size.width * 0.28f
+        val phoneHeight = size.height * 0.48f
+        val cornerRadius = phoneWidth * 0.22f
+
+        val phoneRect = RoundRect(
+            left = centerX - phoneWidth / 2,
+            top = centerY - phoneHeight / 2,
+            right = centerX + phoneWidth / 2,
+            bottom = centerY + phoneHeight / 2,
+            cornerRadius = CornerRadius(cornerRadius, cornerRadius)
+        )
+
+        // Draw phone outline
+        drawPath(
+            path = Path().apply { addRoundRect(phoneRect) },
+            color = phoneColor,
+            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+        )
+
+        // Orbit path — a rounded rect slightly larger than the phone
+// Orbit path — SAME as the phone outline (dot sits on the border)
+        val orbitWidth = phoneWidth / 2
+        val orbitHeight = phoneHeight / 2
+        val orbitCorner = cornerRadius
+
+        val dotRadius = 14.dp.toPx() // slightly larger dot for the half-in half-out look
+
+        val dotOffset = getPointOnRoundedRect(
+            cx = centerX,
+            cy = centerY,
+            halfW = orbitWidth,
+            halfH = orbitHeight,
+            cornerR = orbitCorner,
+            angleDeg = angle
+        )
+        drawCircle(
+            color = dotColor,
+            radius = dotRadius,
+            center = dotOffset
+        )
+    }
+}
+
+/**
+ * Returns a point on a rounded rectangle's perimeter at the given angle (degrees).
+ * 0° = top-center, clockwise.
+ */
+fun getPointOnRoundedRect(
+    cx: Float, cy: Float,
+    halfW: Float, halfH: Float,
+    cornerR: Float, angleDeg: Float
+): Offset {
+    // Clamp corner radius
+    val r = cornerR.coerceAtMost(minOf(halfW, halfH))
+
+    // Total perimeter segments
+    val straightH = 2 * (halfH - r) // each vertical straight
+    val straightW = 2 * (halfW - r) // each horizontal straight
+    val arcLen = (Math.PI.toFloat() / 2) * r // quarter circle arc length
+    val totalPerimeter = 2 * straightW + 2 * straightH + 4 * arcLen
+
+    // Map angle (0°=top center, CW) to distance along perimeter
+    val fraction = (angleDeg % 360f) / 360f
+    var d = fraction * totalPerimeter
+
+    // Segment order starting from top-center going clockwise:
+    // 1. top straight right half
+    // 2. top-right arc
+    // 3. right straight
+    // 4. bottom-right arc
+    // 5. bottom straight
+    // 6. bottom-left arc
+    // 7. left straight
+    // 8. top-left arc
+    // 9. top straight left half
+
+    val topHalf = straightW / 2
+
+    // 1 — Top edge, center → right
+    if (d <= topHalf) {
+        return Offset(cx + d, cy - halfH)
+    }
+    d -= topHalf
+
+    // 2 — Top-right corner arc
+    if (d <= arcLen) {
+        val a = d / r // angle in radians along arc
+        return Offset(
+            cx + halfW - r + r * sin(a),
+            cy - halfH + r - r * cos(a)
+        )
+    }
+    d -= arcLen
+
+    // 3 — Right edge
+    if (d <= straightH) {
+        return Offset(cx + halfW, cy - halfH + r + d)
+    }
+    d -= straightH
+
+    // 4 — Bottom-right corner arc
+    if (d <= arcLen) {
+        val a = d / r
+        return Offset(
+            cx + halfW - r + r * cos(a),
+            cy + halfH - r + r * sin(a)
+        )
+    }
+    d -= arcLen
+
+    // 5 — Bottom edge (right → left)
+    if (d <= straightW) {
+        return Offset(cx + halfW - r - d, cy + halfH)
+    }
+    d -= straightW
+
+    // 6 — Bottom-left corner arc
+    if (d <= arcLen) {
+        val a = d / r
+        return Offset(
+            cx - halfW + r - r * sin(a),
+            cy + halfH - r + r * cos(a)
+        )
+    }
+    d -= arcLen
+
+    // 7 — Left edge (bottom → top)
+    if (d <= straightH) {
+        return Offset(cx - halfW, cy + halfH - r - d)
+    }
+    d -= straightH
+
+    // 8 — Top-left corner arc
+    if (d <= arcLen) {
+        val a = d / r
+        return Offset(
+            cx - halfW + r - r * cos(a),
+            cy - halfH + r - r * sin(a)
+        )
+    }
+    d -= arcLen
+
+    // 9 — Top edge left half (left → center)
+    return Offset(cx - halfW + r + d, cy - halfH)
+}
+
+@Preview
+@Composable
+private fun Demo() {
+    Box(Modifier.fillMaxSize()) {
+        PhoneSearchAnimation(
+            modifier = Modifier
+                .size(200.dp)
+                .align(Alignment.Center)
+        )
+    }
+
 }
