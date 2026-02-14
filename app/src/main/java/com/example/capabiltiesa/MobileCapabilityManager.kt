@@ -18,6 +18,7 @@ class MobileCapabilityManager(
         private const val TAG = "MobileCapabilityMgr"
         private const val CAPABILITY_NAME = "capability_wear"
         const val MESSAGE_PATH = "/dummy_text"
+        const val LOGIN_PATH = "/login_status"
     }
 
     private val capabilityClient = Wearable.getCapabilityClient(context)
@@ -85,6 +86,24 @@ class MobileCapabilityManager(
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "Failed to send message", e)
+            }
+    }
+
+    fun sendLoginStatus(loginMessage: LoginMessage) {
+        val nodeId = wearNodeId
+        if (nodeId == null) {
+            Log.w(TAG, "sendLoginStatus() – no wear node connected")
+            return
+        }
+
+        Log.d(TAG, "Sending login status to node $nodeId: $loginMessage")
+
+        messageClient.sendMessage(nodeId, LOGIN_PATH, loginMessage.toBytes())
+            .addOnSuccessListener {
+                Log.i(TAG, "Login status sent successfully")
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to send login status", e)
             }
     }
 

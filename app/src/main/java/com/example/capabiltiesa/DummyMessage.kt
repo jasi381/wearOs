@@ -17,3 +17,17 @@ data class DummyMessage(
             Json.decodeFromString(String(bytes))
     }
 }
+
+@Serializable
+data class LoginMessage(
+    val isLoggedIn: Boolean,
+    val email: String? = null,
+    val timestamp: Long = System.currentTimeMillis()
+) {
+    fun toBytes(): ByteArray = Json.encodeToString(this).toByteArray()
+
+    companion object {
+        fun fromBytes(bytes: ByteArray): LoginMessage =
+            Json.decodeFromString(String(bytes))
+    }
+}

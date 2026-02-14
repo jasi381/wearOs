@@ -40,8 +40,37 @@ class MobileViewModel(
     private val _onScreen2 = MutableStateFlow(false)
     val onScreen2: StateFlow<Boolean> = _onScreen2
 
+    private val _isLoggedIn = MutableStateFlow(false)
+    val isLoggedIn: StateFlow<Boolean> = _isLoggedIn
+
     fun start() = manager.start()
     fun stop() = manager.stop()
+
+    fun login(email: String, password: String): Boolean {
+        // Dummy login validation
+        if (email == "sjasmeet438@gmail.com" && password == "123456") {
+            _isLoggedIn.value = true
+            // Send login status to watch
+            manager.sendLoginStatus(
+                LoginMessage(
+                    isLoggedIn = true,
+                    email = email
+                )
+            )
+            return true
+        }
+        return false
+    }
+
+    fun logout() {
+        _isLoggedIn.value = false
+        manager.sendLoginStatus(
+            LoginMessage(
+                isLoggedIn = false,
+                email = null
+            )
+        )
+    }
 
     fun navigateToScreen2() {
         _onScreen2.value = true

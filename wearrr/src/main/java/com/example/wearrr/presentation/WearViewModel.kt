@@ -39,6 +39,7 @@ class WearViewModel(
         )
 
     val receivedMessage: StateFlow<DummyMessage?> = manager.receivedMessage
+    val isLoggedIn: StateFlow<Boolean> = manager.isLoggedIn
 
     fun start() = manager.start()
     fun stop() = manager.stop()

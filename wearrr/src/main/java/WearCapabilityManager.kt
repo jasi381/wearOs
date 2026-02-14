@@ -1,6 +1,7 @@
 import android.content.Context
 import android.net.Uri
 import com.example.wearrr.DummyMessage
+import com.example.wearrr.LoginMessage
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.CapabilityInfo
 import com.google.android.gms.wearable.MessageClient
@@ -20,6 +21,7 @@ class WearCapabilityManager(
         private const val TAG = "WearCapabilityMgr"
         private const val CAPABILITY_NAME = "capability_mobile"
         private const val MESSAGE_PATH = "/dummy_text"
+        private const val LOGIN_PATH = "/login_status"
     }
 
     private val capabilityClient = Wearable.getCapabilityClient(context)
@@ -33,6 +35,9 @@ class WearCapabilityManager(
 
     private val _receivedMessage = MutableStateFlow<DummyMessage?>(null)
     val receivedMessage: StateFlow<DummyMessage?> = _receivedMessage
+
+    private val _isLoggedIn = MutableStateFlow(false)
+    val isLoggedIn: StateFlow<Boolean> = _isLoggedIn
 
     fun start() {
         Log.d(TAG, "start() called – registering listeners")
@@ -105,13 +110,24 @@ class WearCapabilityManager(
     override fun onMessageReceived(event: MessageEvent) {
         Log.d(TAG, "onMessageReceived() -> path=${event.path}")
 
-        if (event.path == MESSAGE_PATH) {
-            try {
-                val message = DummyMessage.fromBytes(event.data)
-                _receivedMessage.value = message
-                Log.i(TAG, "Message received: $message")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to parse message", e)
+        when (event.path) {
+            MESSAGE_PATH -> {
+                try {
+                    val message = DummyMessage.fromBytes(event.data)
+                    _receivedMessage.value = message
+                    Log.i(TAG, "Message received: $message")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to parse message", e)
+                }
+            }
+            LOGIN_PATH -> {
+                try {
+                    val loginMessage = LoginMessage.fromBytes(event.data)
+                    _isLoggedIn.value = loginMessage.isLoggedIn
+                    Log.i(TAG, "Login status received: ${loginMessage.isLoggedIn}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to parse login message", e)
+                }
             }
         }
     }
